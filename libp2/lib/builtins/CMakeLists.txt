@@ -1,3 +1,4 @@
+
 add_library(builtins OBJECT
     adddf3.c
     addsf3.c
@@ -45,6 +46,8 @@ add_library(builtins OBJECT
     powf.c
 )
 
+# Ensure libc/include is searched before system includes
+target_include_directories(builtins BEFORE PRIVATE ${CMAKE_SOURCE_DIR}/../libc/include)
 target_include_directories(builtins PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
 # create a compiler_builtins library for rust

@@ -1,0 +1,212 @@
+name: P2LLVM Release
+
+on:
+  push:
+    tags: "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g., v1.0.0)"
+        required: true
+        type: string
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-amd64
+            os: ubuntu-22.04
+            arch: linux-amd64
+          - name: macos-arm64
+            os: macos-14
+            arch: macos-arm64
+          - name: macos-amd64
+            os: macos-13
+            arch: macos-amd64
+
+    steps:
+      - name: Resolve version/tag
+        id: v
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "version=${TAG#v}" >> $GITHUB_OUTPUT
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.v.outputs.tag }}
+          submodules: recursive
+
+      - name: Install deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build
+
+      - name: Show tool versions
+        run: |
+          cmake --version | head -1 || true
+          ninja --version || true
+          /usr/bin/clang --version | head -1 || true
+
+      - name: Configure + Build LLVM (P2 only)
+        run: |
+          mkdir -p llvm-project/build
+          cd llvm-project/build
+          cmake -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_ENABLE_PROJECTS="lld;clang" \
+            -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=P2 \
+            -DLLVM_TARGETS_TO_BUILD="" \
+            -DLLVM_INCLUDE_TESTS=OFF \
+            -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DLLVM_INCLUDE_BENCHMARKS=OFF \
+            -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/p2llvm-install" \
+            ../llvm
+          ninja -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
+          ninja install
+
+      - name: Build P2 Libraries
+        run: |
+          echo "Building static libraries following build.py pattern..."
+          
+          # Use the same approach as build.py - point to install destination
+          LLVM_INSTALL_PATH="$(pwd)/p2llvm-install/bin"
+          echo "LLVM install path: $LLVM_INSTALL_PATH"
+          
+          # Build libp2 first (following build.py exactly)
+          echo "Building libp2.a..."
+          mkdir -p libp2/build
+          cd libp2/build
+          cmake .. -Dllvm="$LLVM_INSTALL_PATH"
+          make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
+          cd ../..
+          
+          # Build libc (following build.py exactly)
+          echo "Building libc.a..."
+          mkdir -p libc/build
+          cd libc/build
+          cmake .. -Dllvm="$LLVM_INSTALL_PATH"
+          make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
+          cd ../..
+          
+          # Copy libraries to install directory
+          mkdir -p p2llvm-install/lib
+          cp libp2/build/lib/libp2.a p2llvm-install/lib/
+          cp libc/build/libc.a p2llvm-install/lib/
+          
+          echo "Built libraries:"
+          ls -la p2llvm-install/lib/*.a
+      - name: Collect binaries
+        run: |
+          OUT="binaries-${{ matrix.arch }}"
+            mkdir -p "$OUT"
+          for t in clang clang++ ld.lld llvm-ar llvm-ranlib llvm-objcopy llvm-objdump llvm-size llvm-nm; do
+            cp p2llvm-install/bin/$t "$OUT/" 2>/dev/null || true
+          done
+          chmod +x "$OUT"/* 2>/dev/null || true
+          ls -1 "$OUT"
+
+      - name: Collect libraries
+        run: |
+          OUT="libraries-${{ matrix.arch }}"
+          mkdir -p "$OUT"
+          cp p2llvm-install/lib/*.a "$OUT/" 2>/dev/null || true
+          ls -1 "$OUT"
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.arch }}
+          path: binaries-${{ matrix.arch }}/
+
+      - name: Upload libraries
+        uses: actions/upload-artifact@v4
+        with:
+          name: libraries-${{ matrix.arch }}
+          path: libraries-${{ matrix.arch }}/
+
+  release:
+    name: Assemble + Release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Resolve version/tag
+        id: v
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "version=${TAG#v}" >> $GITHUB_OUTPUT
+
+      - name: Checkout source (headers/runtime)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.v.outputs.tag }}
+          submodules: recursive
+
+      - name: Download binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Assemble package
+        run: |
+          set -e
+          PKG=tool-p2llvm
+          mkdir -p "$PKG/bin" "$PKG/linker" "$PKG/lib" "$PKG/include"
+          # Provide dedicated linker scripts directory
+          cp libp2/p2*.ld "$PKG/linker/" 2>/dev/null || true
+          # Copy header files with separate subdirectories
+          mkdir -p "$PKG/include/libc" "$PKG/include/libp2"
+          cp -r libc/include/* "$PKG/include/libc/"
+          cp -r libp2/include/* "$PKG/include/libp2/"
+          # Collect pre-built binaries and libraries from all platforms
+          for plat in linux-amd64 macos-amd64 macos-arm64; do
+            SRC="artifacts/binaries-$plat"
+            [ -d "$SRC" ] || continue
+            # Copy binaries
+            mkdir -p "$PKG/bin/$plat"
+            cp -R "$SRC/." "$PKG/bin/$plat/"
+            chmod +x "$PKG/bin/$plat"/* 2>/dev/null || true
+            # Copy libraries if they exist
+            if [ -f "artifacts/libraries-$plat/libc.a" ]; then
+              mkdir -p "$PKG/lib/$plat"
+              cp "artifacts/libraries-$plat/libc.a" "$PKG/lib/$plat/"
+              cp "artifacts/libraries-$plat/libp2.a" "$PKG/lib/$plat/"
+            fi
+          done
+          # Metadata
+          cat > "$PKG/package.json" <<EOF
+          {
+            "name": "toolchain-p2llvm",
+            "version": "${{ steps.v.outputs.version }}",
+            "description": "P2LLVM toolchain bundle with pre-built static libraries and headers",
+            "binLayout": ["linux-amd64","macos-amd64","macos-arm64"],
+            "libLayout": ["linux-amd64","macos-amd64","macos-arm64"],
+            "includeLayout": "universal",
+            "license": "Apache-2.0"
+          }
+          EOF
+          cp README.md LICENSE "$PKG/" 2>/dev/null || true
+          zip -r tool-p2llvm.zip "$PKG"
+          echo "Resulting archive:"; ls -lh tool-p2llvm.zip
+
+      - name: Add Artifacts to Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Add artifacts to existing release
+          gh release upload ${{ steps.v.outputs.tag }} tool-p2llvm.zip --clobber

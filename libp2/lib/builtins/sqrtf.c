@@ -1,8 +1,6 @@
 #define SINGLE_PRECISION
 #include "fp_lib.h"
 
-#include <stdio.h>
-
 static const fp_t one = 1.0, tiny=1.0e-30;
 
 fp_t __attribute__ ((noinline)) __sqrtf(fp_t x) {

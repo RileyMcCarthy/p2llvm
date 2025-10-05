@@ -1,7 +1,7 @@
 #ifndef _PROPELLER2_H
 #define _PROPELLER2_H
 
-#include "pins.h"
+#include "smartpins.h"
 #include "streamer.h"
 
 #define DBG_UART_RX_PIN 63
@@ -322,6 +322,46 @@ unsigned long long _cnt64();
  * wait until current count == cnt
  */
 void _waitcnt(unsigned int cnt);
+
+/**
+ * wait for a specified number of microseconds
+ * Uses 64-bit intermediate math to avoid overflow, breaks large waits
+ * into multiple waitx calls if necessary.
+ * NOTE: Actual delay may be slightly longer due to integer rounding.
+ */
+static inline void _waitus(unsigned int us)
+{
+    if (!us)
+        return;
+    unsigned long long cycles = ((unsigned long long)_clkfreq * (unsigned long long)us + 999999ULL) / 1000000ULL; // round up
+    while (cycles > 0x7fffffffULL)
+    { // waitx argument is signed 32-bit
+        waitx(0x7fffffff);
+        cycles -= 0x7fffffffULL;
+    }
+    if (cycles)
+    {
+        waitx((int)cycles);
+    }
+}
+
+/**
+ * wait for a specified number of milliseconds
+ * Implemented in terms of waitus to share the rounding/overflow logic.
+ */
+static inline void _waitms(unsigned int ms)
+{
+    if (!ms)
+        return;
+    // Avoid overflow by widening before multiply
+    unsigned long long total_us = (unsigned long long)ms * 1000ULL;
+    while (total_us)
+    {
+        unsigned int chunk = (total_us > 0xffffffffULL) ? 0xffffffffU : (unsigned int)total_us; // cap per call
+        _waitus(chunk);                                                                         // handles chunk splitting internally if needed
+        total_us -= chunk;
+    }
+}
 
 /**
  * start a new cog dictated by mode. return if start was successful

@@ -7,6 +7,13 @@ set(CMAKE_TOOLCHAIN_FILE p2.cmake)
 # set the project name
 project(libc)
 
+# Global include paths for all libc object libraries.
+# We need both the libc headers and the libp2 headers (for propeller.h and related).
+include_directories(
+	${CMAKE_CURRENT_SOURCE_DIR}/include
+	${CMAKE_CURRENT_SOURCE_DIR}/../libp2/include
+)
+
 add_subdirectory(drivers)
 add_subdirectory(math)
 add_subdirectory(misc)

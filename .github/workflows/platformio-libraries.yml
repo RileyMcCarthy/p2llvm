@@ -1,0 +1,162 @@
+name: PlatformIO Libraries Release
+
+on:
+  push:
+    tags: "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Library tag to release (e.g., v1.0.0)"
+        required: true
+        type: string
+
+jobs:
+  build-libraries:
+    name: Build PlatformIO Libraries
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Resolve version/tag
+        id: v
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "version=${TAG#v}" >> $GITHUB_OUTPUT
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.v.outputs.tag }}
+          submodules: recursive
+
+      - name: Create library.json files
+        run: |
+          VERSION="${{ steps.v.outputs.version }}"
+          
+          # Create libc library.json
+          cat > libc/library.json <<EOF
+          {
+            "name": "p2libc",
+            "version": "${VERSION}",
+            "description": "Minimal C runtime / libc subset for Propeller 2 (p2llvm toolchain)",
+            "keywords": ["propeller","p2","libc","runtime"],
+            "license": "Apache-2.0",
+            "build": {
+              "includeDir": "include",
+              "flags": ["-ffunction-sections","-fdata-sections","-fno-builtin","-Os"],
+              "srcFilter": [
+                "+<*.c>"
+              ],
+              "libArchive": true
+            },
+            "export": {
+              "exclude": ["build","CMakeLists.txt","p2.cmake"]
+            }
+          }
+          EOF
+          
+          # Create libp2 library.json
+          cat > libp2/library.json <<EOF
+          {
+            "name": "p2libp2",
+            "version": "${VERSION}",
+            "description": "Propeller 2 low-level support library (smart pins, clock, UART, basic runtime)",
+            "keywords": ["propeller","p2","runtime","support"],
+            "license": "Apache-2.0",
+            "build": {
+              "includeDir": "include",
+              "flags": ["-ffunction-sections","-fdata-sections","-fno-builtin","-Os"],
+              "srcFilter": [
+                "+<*.c>"
+              ],
+              "libArchive": true
+            },
+            "export": {
+              "exclude": ["build","build_test","*.ld","CMakeLists.txt","p2.cmake"]
+            }
+          }
+          EOF
+          
+          echo "Created library.json files with version ${VERSION}"
+
+      - name: Create p2llvm-libc package
+        run: |
+          set -e
+          PKG_NAME="p2llvm-libc"
+          mkdir -p "$PKG_NAME"
+          
+          # Copy libc source files and structure, excluding build directories
+          rsync -av --exclude='build*' --exclude='CMakeLists.txt' --exclude='*.cmake' libc/ "$PKG_NAME/"
+          
+          # Ensure we have the correct library.json
+          cp libc/library.json "$PKG_NAME/"
+          
+          # Create the zip package
+          zip -r p2llvm-libc.zip "$PKG_NAME"
+          echo "Created p2llvm-libc.zip"; ls -lh p2llvm-libc.zip
+
+      - name: Create p2llvm-libp2 package
+        run: |
+          set -e
+          PKG_NAME="p2llvm-libp2"
+          mkdir -p "$PKG_NAME"
+          
+          # Copy libp2 source files and structure, excluding build directories
+          rsync -av --exclude='build*' --exclude='*.ld' --exclude='CMakeLists.txt' --exclude='*.cmake' libp2/ "$PKG_NAME/"
+          
+          # Ensure we have the correct library.json
+          cp libp2/library.json "$PKG_NAME/"
+          
+          # Create the zip package
+          zip -r p2llvm-libp2.zip "$PKG_NAME"
+          echo "Created p2llvm-libp2.zip"; ls -lh p2llvm-libp2.zip
+
+      - name: Verify packages
+        run: |
+          echo "=== Package Contents ==="
+          echo "p2llvm-libc.zip:"
+          unzip -l p2llvm-libc.zip | head -20
+          echo ""
+          echo "p2llvm-libp2.zip:" 
+          unzip -l p2llvm-libp2.zip | head -20
+          
+          echo ""
+          echo "=== Package Sizes ==="
+          ls -lh *.zip
+
+      - name: Upload Release Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: p2llvm-platformio-libraries
+          path: |
+            p2llvm-libc.zip
+            p2llvm-libp2.zip
+
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        with:
+          name: P2LLVM PlatformIO Libraries v${{ steps.v.outputs.version }}
+          tag: ${{ steps.v.outputs.tag }}
+          artifacts: |
+            p2llvm-libc.zip
+            p2llvm-libp2.zip
+          allowUpdates: true
+          artifactErrorsFailBuild: true
+          body: |
+            PlatformIO library packages for P2LLVM toolchain development.
+            
+            **Libraries included:**
+            - `p2llvm-libc.zip` - Minimal C runtime / libc subset for Propeller 2
+            - `p2llvm-libp2.zip` - Propeller 2 low-level support library (smart pins, clock, UART, basic runtime)
+            
+            **Usage:**
+            Add to your PlatformIO project's `lib_deps`:
+            ```ini
+            lib_deps = 
+                https://github.com/RileyMcCarthy/p2llvm/releases/download/${{ steps.v.outputs.tag }}/p2llvm-libc.zip
+                https://github.com/RileyMcCarthy/p2llvm/releases/download/${{ steps.v.outputs.tag }}/p2llvm-libp2.zip
+            ```

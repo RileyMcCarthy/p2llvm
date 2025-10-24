@@ -26,12 +26,6 @@ int _pin_do_in = 58;
 
 #define DO_INIT()	fltl(PIN_DO)				/* Initialize port for MMC DO as input */
 
-#define _pinr(pin) ({             \
-    int result;                   \
-    testp(pin, result);           \
-    result;                       \
-})
-
 #define DO		(SHORTPAUSE(), (_pinr(PIN_DO) & 1))	/* Test for MMC DO ('H':true, 'L':false) */
 
 #define DI_INIT()	dirh(PIN_DI)	/* Initialize port for MMC DI as output */
@@ -53,36 +47,6 @@ int _pin_do_in = 58;
  */
 static void dly_us(UINT n) {
     waitx(CLKFREQ/1000000*n);
-}
-
-/**
- * set up a smart pin
- * 
- * mirror from flexprop
- */
-static void _pinsetup(int pin, int mode, int xval, int yval) {
-    dirl(pin);
-    wrpin(mode, pin);
-    wxpin(xval, pin);
-    wypin(yval, pin);
-}
-
-/**
- * set up and run a smart pin
- * 
- * mirror from flexprop
- */
-static void _pinstart(int pin, int mode, int xval, int yval) {
-	_pinsetup(pin, mode, xval, yval);
-  	dirh(pin);
-}
-
-/**
- * clear the smart pin
- */
-static void _pinclear(int pin) {
-	fltl(pin);
-	wrpin(0, pin);
 }
 
 // ==== function implementations ====

@@ -3,6 +3,7 @@
 
 #include "smartpins.h"
 #include "streamer.h"
+#include <stdint.h>
 
 #define DBG_UART_RX_PIN 63
 #define DBG_UART_TX_PIN 62
@@ -479,6 +480,94 @@ void _unlock(unsigned int l);
  */
 unsigned int crc32(unsigned char *s, int n);
 
+// ---- FlexProp compatibility: prefer macros mapping to existing names ----
+static inline int _lockrel(int lock)
+{
+    int rval = 0;
+    asm volatile("lockrel %0 wc" ::"r"(lock));
+    wrc(rval);
+    return rval;
+}
+#define _clockfreq() (*(uint32_t *)0x14)
+#define _clockmode() (*(uint32_t *)0x18)
+static inline uint32_t _getus(void)
+{
+    // Use 64-bit counter directly
+    unsigned long long cycles = _cnt64();
+    // Divide by cycles-per-microsecond to avoid 64-bit overflow
+    uint32_t per_us = (uint32_t)(((_clkfreq + 500000U) / 1000000U));
+    if (per_us == 0)
+        per_us = 1; // avoid division by zero on very low clocks
+    return (uint32_t)(cycles / (unsigned long long)per_us);
+}
+static inline uint32_t _getms(void)
+{
+    // Use 64-bit counter directly
+    unsigned long long cycles = _cnt64();
+    // Divide by cycles-per-millisecond to avoid 64-bit overflow
+    uint32_t per_ms = (uint32_t)(((_clkfreq + 500U) / 1000U));
+    if (per_ms == 0)
+        per_ms = 1; // avoid division by zero on very low clocks
+    return (uint32_t)(cycles / (unsigned long long)per_ms);
+}
+static inline void _waitx(uint32_t cycles) { waitx((int)cycles); }
+static inline void _pinl(int pin) { drvl(pin); }
+static inline void _pinh(int pin) { drvh(pin); }
+static inline void _pinnot(int pin) { outnot(pin); }
+static inline int _pinr(int pin)
+{
+    int result;
+    testp(pin, result);
+    return result;
+}
+static inline void _pinw(int pin, int val)
+{
+    if (val)
+        outh(pin);
+    else
+        outl(pin);
+}
+static inline void _wrpin(int pin, uint32_t val) { wrpin((val), (pin)); }
+static inline void _wxpin(int pin, uint32_t val) { wxpin((val), (pin)); }
+static inline void _wypin(int pin, uint32_t val) { wypin((val), (pin)); }
+static inline void _akpin(int pin) { akpin((pin)); }
+static inline uint32_t _rdpin(int pin)
+{
+    int v;
+    rdpin(v, pin);
+    return (uint32_t)v;
+}
+static inline uint32_t _rqpin(int pin)
+{
+    int v;
+    rqpin(v, pin);
+    return (uint32_t)v;
+}
+static inline void _pinsetup(int pin, int mode, int xval, int yval)
+{
+    dirl(pin);
+    wrpin(mode, pin);
+    wxpin(xval, pin);
+    wypin(yval, pin);
+}
+static inline void _pinstart(int pin, int mode, int xval, int yval)
+{
+    _pinsetup(pin, mode, xval, yval);
+    dirh(pin);
+}
+static inline void _pinclear(int pin)
+{
+    fltl(pin);
+    wrpin(0, pin);
+}
+
+// UART helpers
+static inline void _setbaud(unsigned baud) { _uart_init(DBG_UART_RX_PIN, DBG_UART_TX_PIN, baud, 0); }
+static inline void _txraw(int c) { _uart_putc((unsigned char)c, DBG_UART_TX_PIN); }
+static inline int  _rxpoll(void) { return _uart_checkc(DBG_UART_RX_PIN) ? (int)_uart_getc(DBG_UART_RX_PIN) : -1; }
+
+// System helpers
+#define _reboot() reboot()
 // Misc useful macros
 
 #define MIN2(a,b) (a < b ? a:b)

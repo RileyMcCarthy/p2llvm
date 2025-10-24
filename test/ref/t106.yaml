@@ -1,0 +1,68 @@
+expected_output: |
+  Test 1: Clock functions
+  PASS: _clockfreq returned valid value
+  
+  Test 2: _cnt basic read
+  PASS: _cnt increments
+  
+  Test 3: _cnth upper bits
+  PASS: _cnth executed
+  
+  Test 4: _cnt64 full counter
+  PASS: _cnt64 increments
+  
+  Test 5: _waitx basic wait
+  PASS: _waitx waited approximately correct time
+  
+  Test 6: _getus microseconds
+  PASS: _getus delta
+  
+  Test 7: _getms milliseconds
+  PASS: _getms delta
+  
+  Test 8: Time functions monotonicity
+  PASS: Time functions are monotonic
+  
+  Test 9: Lock functions
+  PASS: _locknew returned lock
+  
+  Test 10: _locktry on free lock
+  PASS: _locktry succeeded on free lock
+  
+  Test 11: _locktry on held lock
+  PASS: _locktry failed on held lock
+  
+  Test 12: _lockrel return value
+  PASS: _lockrel returned -1 for held lock
+  
+  Test 13: _lockrel on free lock
+  PASS: _lockrel returned 0 for free lock
+  
+  Test 14: _lockret
+  PASS: _lockret executed
+  
+  Test 15: _pinr pin read
+  PASS: _pinr(0) returned
+  
+  Test 16: Pin control functions
+  PASS: Pin control functions executed
+  
+  Test 17: Smart pin functions
+  PASS: Smart pin functions
+  
+  Test 18: _pinw function
+  PASS: _pinw executed
+  
+  Test 19: _waitx with small value
+  PASS: _waitx(1) executed
+  
+  Test 20: _waitx with zero
+  PASS: _waitx(0) executed
+  
+  Test 21: Rapid time reads
+  PASS: Rapid _getus calls are monotonic
+  
+  Test 22: Time calculation safety
+  PASS: Current microseconds
+  
+  === All FlexProp compatibility tests completed ===

@@ -1,6 +1,6 @@
 [submodule "llvm-project"]
 	path = llvm-project
-	url = https://github.com/ne75/llvm-project.git
+	url = https://github.com/RileyMcCarthy/llvm-project.git
 [submodule "loadp2"]
 	path = loadp2
 	url = https://github.com/ne75/loadp2.git
